@@ -1,10 +1,9 @@
 var Path = require('path');
-var EventEmitter = require('events');
-var USBDetect = require('usb-detection');
 var ChildProcess = require('child_process');
-var spawnFile = ChildProcess.spawn;
 var ADB_PATH = Path.resolve(__dirname, 'adb');
-var eventEmitter = new EventEmitter();
+
+var watchProcess = null;
+var activeDevices = {};
 
 function adb_run(args, ret, serialNumber) {
 	if (serialNumber) args = ['-s', serialNumber].concat(args);
@@ -13,7 +12,20 @@ function adb_run(args, ret, serialNumber) {
 	});
 }
 
+function adb_push(local, remote, ret, serialNumber) {
+	if (!serialNumber) return ret(true);
+	adb_run(['push', local, remote], (error) => ret(error), serialNumber);
+}
+
+function adb_pull(remote, local, ret, serialNumber) {
+	if (!serialNumber) return ret(true);
+	adb_run(['pull', remote, local], (error) => ret(error), serialNumber);
+}
+
+/*
 function adb_ls(path, ret, serialNumber) {
+	if (!serialNumber) return ret([]);
+
 	adb_run(['shell', '-nT', 'ls', '-lLa',  path], function(error, lines) {
 		var items = [], item;
 		lines = (lines || '').split('\n');
@@ -34,6 +46,7 @@ function adb_ls(path, ret, serialNumber) {
 		ret(items);
 	}, serialNumber);
 }
+*/
 
 function adb_devices(ret, serialNumber) {
 	adb_run(['devices', '-l'], function(error, result) {
@@ -59,62 +72,37 @@ function adb_devices(ret, serialNumber) {
 	});
 }
 
-USBDetect.on('add', function(device) {
-	var serialNumber = device.serialNumber;
-	if (!serialNumber) return;
+function watch(handler) {
+	if (watchProcess) return;
+	watchProcess = ChildProcess.spawn(ADB_PATH, ['track-devices']);
+	watchProcess.stdout.on('data', () => adb_devices(function(devices) {
 
-	console.info(device)
+		var connected = [], disconnected = [],
+			serialNumbers = devices.map(device => device.serialNumber);
 
-	var isConnected = false;
-
-	var waitProcess = adb_run(['wait-for-usb-device'], function(error) {
-		if (error) return;
-		adb_devices(function(devices) {
-			if (devices.length === 1) {
-				isConnected = true;
-				eventEmitter.emit('connected', devices);
+		for (var serialNumber in activeDevices) {
+			if (activeDevices.hasOwnProperty(serialNumber) &&
+				!serialNumbers.includes(serialNumber)) {
+				disconnected.push(activeDevices[serialNumber]);
+				delete activeDevices[serialNumber];
 			}
-		}, serialNumber);
-	}, serialNumber);
-
-	USBDetect.once(`removed:${serialNumber}`, function() {
-		if (isConnected) eventEmitter.emit('disconnected', serialNumber);
-		waitProcess.kill();
-	});
-});
-
-USBDetect.on('remove', function(device) {
-	var serialNumber = device.serialNumber;
-	if (serialNumber) USBDetect.emit(`removed:${serialNumber}`);
-});
-
-function start() {
-
-	process.once('SIGINT', USBDetect.stopMonitoring);
-	process.once('SIGTERM', USBDetect.stopMonitoring);
-	process.once('uncaughtException', function(error) {
-		console.info(error);
-		USBDetect.stopMonitoring();
-	});
-
-	adb_devices(function(devices) {
-
-		for (var c = 0; c < devices.length; c++) {
-			var serialNumber = devices[c].serialNumber;
-			USBDetect.once(`removed:${serialNumber}`, function() {
-				eventEmitter.emit('disconnected', serialNumber);
-			});
 		}
 
-		eventEmitter.emit('connected', devices);
-		USBDetect.startMonitoring();
+		while (devices.length) {
+			var device = devices.shift(), serialNumber = device.serialNumber;
+			if (activeDevices.hasOwnProperty(serialNumber)) continue;
+			connected.push(activeDevices[serialNumber] = device);
+		}
 
-	});
+		handler(connected, disconnected);
+	}));
 }
 
-module.exports = Object.assign(eventEmitter, {
-	start: start,
+module.exports = {
+	watch: watch,
 	run: adb_run,
 	ls: adb_ls,
+	push: adb_push,
+	pull: adb_pull,
 	devices: adb_devices
-});
+};

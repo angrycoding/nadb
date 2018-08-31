@@ -1,8 +1,5 @@
 {
 	"name": "nadb",
 	"version": "1.0.0",
-	"description": "Yet another Node.js ADB wrapper",
-	"dependencies": {
-		"usb-detection": "latest"
-	}
+	"description": "Yet another Node.js ADB wrapper"
 }

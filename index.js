@@ -5,6 +5,7 @@ var ADB_PATH = Path.resolve(__dirname, 'adb');
 var watchProcess = null;
 var activeDevices = {};
 
+
 function adb_run(args, ret, serialNumber) {
 	if (serialNumber) args = ['-s', serialNumber].concat(args);
 	return ChildProcess.execFile(ADB_PATH, args, function(error, stdout, stderr) {
@@ -22,31 +23,31 @@ function adb_pull(remote, local, ret, serialNumber) {
 	adb_run(['pull', remote, local], (error) => ret(error), serialNumber);
 }
 
-/*
 function adb_ls(path, ret, serialNumber) {
 	if (!serialNumber) return ret([]);
-
-	adb_run(['shell', '-nT', 'ls', '-lLa',  path], function(error, lines) {
+	adb_run(['ls',  path], function(error, lines) {
+		if (error) return ret([]);
 		var items = [], item;
 		lines = (lines || '').split('\n');
 		for (var c = 0; c < lines.length; c++) {
 			var line = lines[c].split(/\s+/);
-			if (line.length < 8) continue;
-			var name = line.slice(7).join(' ');
-			if (name.length > 1 && name[0] === '.') continue;
-			var date = line[5].split('-'), time = line[6].split(':');
+			if (line.length !== 4) continue;
+			var name = line.pop();
+			
+
 			items.push({
-				name: Path.basename(name),
-				size: parseInt(line[4], 10),
-				isDir: (line[0][0] === 'd'),
-				path: Path.resolve(path, name),
-				date: (new Date(Date.UTC(date[0], parseInt(date[1]) - 1, date[2], time[0], time[1]))).getTime()
+				mode: parseInt(line.shift(), 16),
+				size: parseInt(line.shift(), 16),
+				time: parseInt(line.shift(), 16),
+				name: name,
+				path: Path.resolve(path, name)
 			});
+
+
 		}
 		ret(items);
 	}, serialNumber);
 }
-*/
 
 function adb_devices(ret, serialNumber) {
 	adb_run(['devices', '-l'], function(error, result) {
